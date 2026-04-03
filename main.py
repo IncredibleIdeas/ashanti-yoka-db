@@ -655,3 +655,5 @@ elif st.session_state.logged_in and st.session_state.page == "Export Data":
 st.sidebar.divider()
 st.sidebar.caption("Kumasi District YoKA Registration System v2.0")
 st.sidebar.caption("© 2024 All Rights Reserved")
+
+
