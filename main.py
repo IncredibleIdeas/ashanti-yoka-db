@@ -162,7 +162,7 @@ def get_all_members():
     existing_columns = [column[1] for column in c.fetchall()]
     
     desired_columns = [
-        'id', 'official_name', 'date_of_birth', 'age', 'residence', 'active_phone', 'email',
+        'id', 'official_name', 'date_of_birth', 'age', 'residence', 'active_phone', 'email', 'profile_picture',
         'school_name', 'school_level', 'school_class', 'school_house', 'residence_status', 'residence_name',
         'church_branch', 'yoka_hall', 'youth_camps_attended',
         'is_diaspora', 'diaspora_country', 'diaspora_job', 'diaspora_school', 'diaspora_education_level',
@@ -179,6 +179,15 @@ def get_all_members():
     
     conn.close()
     return df
+
+# Function to get a single member by ID
+def get_member_by_id(member_id):
+    conn = sqlite3.connect('kumasi_yoka_registration.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM members WHERE id = ?", (member_id,))
+    member = c.fetchone()
+    conn.close()
+    return member
 
 # Initialize database
 init_database()
@@ -330,9 +339,10 @@ elif st.session_state.logged_in and st.session_state.page == "Registration Form"
             
             # Profile Picture
             st.markdown("### 📸 Profile Picture")
-            profile_pic = st.file_uploader("Upload Profile Picture", type=['jpg', 'jpeg', 'png'])
+            profile_pic = st.file_uploader("Upload Profile Picture", type=['jpg', 'jpeg', 'png'], key="profile_pic_uploader")
             if profile_pic:
                 st.image(profile_pic, width=150, caption="Preview")
+                st.success("✅ Picture selected and will be saved with registration")
         
         with col2:
             # Manual age input
@@ -341,6 +351,9 @@ elif st.session_state.logged_in and st.session_state.page == "Registration Form"
             
             if date_of_birth:
                 calculated_age = datetime.now().year - date_of_birth.year
+                # Adjust if birthday hasn't occurred this year
+                if date_of_birth.replace(year=datetime.now().year) > datetime.now().date():
+                    calculated_age -= 1
                 st.caption(f"💡 Based on DOB: {calculated_age} years (if different, please adjust age above)")
         
         st.markdown("---")
@@ -471,6 +484,7 @@ elif st.session_state.logged_in and st.session_state.page == "Registration Form"
                 profile_pic_bytes = None
                 if profile_pic:
                     profile_pic_bytes = profile_pic.getvalue()
+                    st.info(f"📸 Picture size: {len(profile_pic_bytes)} bytes - will be saved")
                 
                 # Prepare data for saving
                 data = {
@@ -582,50 +596,70 @@ elif st.session_state.logged_in and st.session_state.page == "View Registrations
         if len(df_filtered) > 0 and 'id' in df_filtered.columns:
             selected_id = st.selectbox("Select Member ID", df_filtered['id'].tolist())
             if selected_id:
-                record = df_filtered[df_filtered['id'] == selected_id].iloc[0]
-                
-                with st.expander("Personal Information", expanded=True):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"**Full Name:** {record.get('official_name', 'N/A')}")
-                        st.write(f"**Date of Birth:** {record.get('date_of_birth', 'Not provided')}")
-                        st.write(f"**Age:** {record.get('age', 'N/A')}")
-                        st.write(f"**Residence:** {record.get('residence', 'N/A')}")
-                    with col2:
-                        st.write(f"**Phone:** {record.get('active_phone', 'N/A')}")
-                        st.write(f"**Email:** {record.get('email', 'N/A')}")
-                
-                if 'school_name' in record.index:
-                    with st.expander("School Information"):
-                        st.write(f"**School Level:** {record.get('school_level', 'N/A')}")
-                        st.write(f"**School Name:** {record.get('school_name', 'N/A')}")
-                        st.write(f"**Class/Level:** {record.get('school_class', 'N/A')}")
-                        st.write(f"**House:** {record.get('school_house', 'N/A')}")
-                        st.write(f"**Residence Status:** {record.get('residence_status', 'N/A')}")
-                        if record.get('residence_name'):
-                            st.write(f"**Residence Name:** {record.get('residence_name', 'N/A')}")
-                
-                if 'church_branch' in record.index:
-                    with st.expander("Church & YoKA Information"):
-                        st.write(f"**Church Branch:** {record.get('church_branch', 'N/A')}")
-                        st.write(f"**YoKA Hall:** {record.get('yoka_hall', 'N/A')}")
-                        st.write(f"**Youth Camps Attended:** {record.get('youth_camps_attended', 'N/A')}")
-                
-                if record.get('is_diaspora'):
-                    with st.expander("Diaspora Information"):
-                        st.write(f"**Country:** {record.get('diaspora_country', 'N/A')}")
-                        st.write(f"**Job:** {record.get('diaspora_job', 'N/A')}")
-                        st.write(f"**School:** {record.get('diaspora_school', 'N/A')}")
-                        st.write(f"**Education Level:** {record.get('diaspora_education_level', 'N/A')}")
-                
-                if 'parent_name' in record.index:
-                    with st.expander("Parent/Guardian Information"):
-                        st.write(f"**Name:** {record.get('parent_name', 'N/A')}")
-                        st.write(f"**Phone:** {record.get('parent_phone', 'N/A')}")
-                        st.write(f"**Relationship:** {record.get('parent_relationship', 'N/A')}")
-                        st.write(f"**Occupation:** {record.get('parent_occupation', 'N/A')}")
-                
-                st.write(f"**Registered on:** {record.get('submission_date', 'N/A')}")
+                # Get full member data including profile picture
+                member = get_member_by_id(selected_id)
+                if member:
+                    # Get column names
+                    c = sqlite3.connect('kumasi_yoka_registration.db')
+                    cursor = c.cursor()
+                    cursor.execute("PRAGMA table_info(members)")
+                    columns = [col[1] for col in cursor.fetchall()]
+                    c.close()
+                    
+                    # Create record dict
+                    record = dict(zip(columns, member))
+                    
+                    # Display profile picture if exists
+                    if record.get('profile_picture'):
+                        try:
+                            st.image(record['profile_picture'], width=200, caption="Profile Picture")
+                        except Exception as e:
+                            st.warning("Could not display profile picture")
+                    else:
+                        st.info("No profile picture uploaded")
+                    
+                    with st.expander("Personal Information", expanded=True):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"**Full Name:** {record.get('official_name', 'N/A')}")
+                            st.write(f"**Date of Birth:** {record.get('date_of_birth', 'Not provided')}")
+                            st.write(f"**Age:** {record.get('age', 'N/A')}")
+                            st.write(f"**Residence:** {record.get('residence', 'N/A')}")
+                        with col2:
+                            st.write(f"**Phone:** {record.get('active_phone', 'N/A')}")
+                            st.write(f"**Email:** {record.get('email', 'N/A')}")
+                    
+                    if 'school_name' in record:
+                        with st.expander("School Information"):
+                            st.write(f"**School Level:** {record.get('school_level', 'N/A')}")
+                            st.write(f"**School Name:** {record.get('school_name', 'N/A')}")
+                            st.write(f"**Class/Level:** {record.get('school_class', 'N/A')}")
+                            st.write(f"**House:** {record.get('school_house', 'N/A')}")
+                            st.write(f"**Residence Status:** {record.get('residence_status', 'N/A')}")
+                            if record.get('residence_name'):
+                                st.write(f"**Residence Name:** {record.get('residence_name', 'N/A')}")
+                    
+                    if 'church_branch' in record:
+                        with st.expander("Church & YoKA Information"):
+                            st.write(f"**Church Branch:** {record.get('church_branch', 'N/A')}")
+                            st.write(f"**YoKA Hall:** {record.get('yoka_hall', 'N/A')}")
+                            st.write(f"**Youth Camps Attended:** {record.get('youth_camps_attended', 'N/A')}")
+                    
+                    if record.get('is_diaspora'):
+                        with st.expander("Diaspora Information"):
+                            st.write(f"**Country:** {record.get('diaspora_country', 'N/A')}")
+                            st.write(f"**Job:** {record.get('diaspora_job', 'N/A')}")
+                            st.write(f"**School:** {record.get('diaspora_school', 'N/A')}")
+                            st.write(f"**Education Level:** {record.get('diaspora_education_level', 'N/A')}")
+                    
+                    if 'parent_name' in record:
+                        with st.expander("Parent/Guardian Information"):
+                            st.write(f"**Name:** {record.get('parent_name', 'N/A')}")
+                            st.write(f"**Phone:** {record.get('parent_phone', 'N/A')}")
+                            st.write(f"**Relationship:** {record.get('parent_relationship', 'N/A')}")
+                            st.write(f"**Occupation:** {record.get('parent_occupation', 'N/A')}")
+                    
+                    st.write(f"**Registered on:** {record.get('submission_date', 'N/A')}")
     else:
         st.info("No registrations yet. Please register a new member to get started.")
 
@@ -638,7 +672,13 @@ elif st.session_state.logged_in and st.session_state.page == "Export Data":
     if not df.empty:
         st.write(f"Total registered members: {len(df)}")
         
-        csv = df.to_csv(index=False)
+        # Remove profile_picture from export as it's binary data
+        if 'profile_picture' in df.columns:
+            df_export = df.drop(columns=['profile_picture'])
+        else:
+            df_export = df
+        
+        csv = df_export.to_csv(index=False)
         st.download_button(
             label="Download data as CSV",
             data=csv,
@@ -647,7 +687,7 @@ elif st.session_state.logged_in and st.session_state.page == "Export Data":
         )
         
         st.subheader("Data Preview")
-        st.dataframe(df.head(10), use_container_width=True)
+        st.dataframe(df_export.head(10), use_container_width=True)
     else:
         st.info("No data to export.")
 
