@@ -4,77 +4,96 @@ import pandas as pd
 from datetime import datetime
 import hashlib
 import os
+from PIL import Image
+import io
 
-# Database setup
+# Page configuration MUST be the first Streamlit command
+st.set_page_config(page_title="Kumasi District YoKA Registration", page_icon="⛪", layout="wide")
+
+# Database setup with comprehensive migration
 def init_database():
-    conn = sqlite3.connect('yoka_volunteers.db')
+    conn = sqlite3.connect('kumasi_yoka_registration.db')
     c = conn.cursor()
     
-    # Create volunteers table with new structure
-    c.execute('''CREATE TABLE IF NOT EXISTS volunteers
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  -- Personal Information
-                  official_name TEXT NOT NULL,
-                  date_of_birth TEXT NOT NULL,
-                  age INTEGER NOT NULL,
-                  residence TEXT NOT NULL,
-                  active_phone TEXT NOT NULL,
-                  email TEXT,
-                  interests TEXT,
-                  allergies TEXT,
-                  
-                  -- Father's Details
-                  father_name TEXT NOT NULL,
-                  father_phone TEXT NOT NULL,
-                  father_church_member TEXT NOT NULL,
-                  father_branch TEXT,
-                  father_position TEXT,
-                  father_residence TEXT NOT NULL,
-                  father_occupation TEXT NOT NULL,
-                  
-                  -- Mother's Details
-                  mother_name TEXT NOT NULL,
-                  mother_phone TEXT NOT NULL,
-                  mother_church_member TEXT NOT NULL,
-                  mother_branch TEXT,
-                  mother_position TEXT,
-                  mother_residence TEXT NOT NULL,
-                  mother_occupation TEXT NOT NULL,
-                  
-                  -- Guardian's Details
-                  guardian_name TEXT,
-                  guardian_phone TEXT,
-                  guardian_church_member TEXT,
-                  guardian_branch TEXT,
-                  guardian_position TEXT,
-                  guardian_residence TEXT,
-                  guardian_occupation TEXT,
-                  
-                  -- Educational Information
-                  shs_school TEXT NOT NULL,
-                  shs_program TEXT NOT NULL,
-                  tertiary_school TEXT,
-                  tertiary_program TEXT,
-                  current_class TEXT NOT NULL,
-                  
-                  -- Occupation/Apprenticeship
-                  job_name TEXT,
-                  job_position TEXT,
-                  job_experience TEXT,
-                  job_location TEXT,
-                  
-                  -- Church Information
-                  church_branch TEXT NOT NULL,
-                  church_duration TEXT NOT NULL,
-                  church_position TEXT,
-                  
-                  -- YoKA Info
-                  yoka_hall TEXT NOT NULL,
-                  yoka_position TEXT,
-                  yoka_participation TEXT,
-                  youth_camps_attended TEXT,
-                  
-                  submission_date TEXT NOT NULL)''')
+    # Check if members table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='members'")
+    table_exists = c.fetchone()
+    
+    if table_exists:
+        # Get existing columns
+        c.execute("PRAGMA table_info(members)")
+        existing_columns = [column[1] for column in c.fetchall()]
+        
+        # Define all new columns that should be added
+        new_columns = {
+            'profile_picture': 'BLOB',
+            'school_name': 'TEXT NOT NULL DEFAULT ""',
+            'school_level': 'TEXT NOT NULL DEFAULT ""',
+            'school_class': 'TEXT NOT NULL DEFAULT ""',
+            'school_house': 'TEXT',
+            'residence_status': 'TEXT NOT NULL DEFAULT ""',
+            'residence_name': 'TEXT',
+            'youth_camps_attended': 'INTEGER DEFAULT 0',
+            'is_diaspora': 'BOOLEAN DEFAULT 0',
+            'diaspora_country': 'TEXT',
+            'diaspora_job': 'TEXT',
+            'diaspora_school': 'TEXT',
+            'diaspora_education_level': 'TEXT',
+            'parent_name': 'TEXT NOT NULL DEFAULT ""',
+            'parent_phone': 'TEXT NOT NULL DEFAULT ""',
+            'parent_relationship': 'TEXT NOT NULL DEFAULT ""',
+            'parent_occupation': 'TEXT NOT NULL DEFAULT ""'
+        }
+        
+        # Add missing columns
+        for col_name, col_type in new_columns.items():
+            if col_name not in existing_columns:
+                try:
+                    c.execute(f"ALTER TABLE members ADD COLUMN {col_name} {col_type}")
+                except Exception as e:
+                    pass
+        
+        # Check if old columns need to be renamed or data migrated
+        if 'father_name' in existing_columns:
+            try:
+                c.execute("UPDATE members SET parent_name = father_name WHERE parent_name = '' OR parent_name IS NULL")
+                c.execute("UPDATE members SET parent_phone = father_phone WHERE parent_phone = '' OR parent_phone IS NULL")
+                c.execute("UPDATE members SET parent_relationship = 'Father' WHERE parent_relationship = '' OR parent_relationship IS NULL")
+                c.execute("UPDATE members SET parent_occupation = father_occupation WHERE parent_occupation = '' OR parent_occupation IS NULL")
+            except Exception as e:
+                pass
+        
+        conn.commit()
+    else:
+        # Create members table with all columns (new database)
+        c.execute('''CREATE TABLE members
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      official_name TEXT NOT NULL,
+                      date_of_birth TEXT,
+                      age INTEGER NOT NULL,
+                      residence TEXT NOT NULL,
+                      active_phone TEXT NOT NULL,
+                      email TEXT,
+                      profile_picture BLOB,
+                      school_name TEXT NOT NULL,
+                      school_level TEXT NOT NULL,
+                      school_class TEXT NOT NULL,
+                      school_house TEXT,
+                      residence_status TEXT NOT NULL,
+                      residence_name TEXT,
+                      church_branch TEXT NOT NULL,
+                      yoka_hall TEXT NOT NULL,
+                      youth_camps_attended INTEGER NOT NULL,
+                      is_diaspora BOOLEAN DEFAULT 0,
+                      diaspora_country TEXT,
+                      diaspora_job TEXT,
+                      diaspora_school TEXT,
+                      diaspora_education_level TEXT,
+                      parent_name TEXT NOT NULL,
+                      parent_phone TEXT NOT NULL,
+                      parent_relationship TEXT NOT NULL,
+                      parent_occupation TEXT NOT NULL,
+                      submission_date TEXT NOT NULL)''')
     
     # Create users table for login
     c.execute('''CREATE TABLE IF NOT EXISTS users
@@ -99,7 +118,7 @@ def hash_password(password):
 
 # Login function
 def check_login(username, password):
-    conn = sqlite3.connect('yoka_volunteers.db')
+    conn = sqlite3.connect('kumasi_yoka_registration.db')
     c = conn.cursor()
     hashed_password = hash_password(password)
     c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, hashed_password))
@@ -107,51 +126,62 @@ def check_login(username, password):
     conn.close()
     return user
 
-# Function to save volunteer data
-def save_volunteer(data):
-    conn = sqlite3.connect('yoka_volunteers.db')
+# Function to save member data
+def save_member(data, profile_picture=None):
+    conn = sqlite3.connect('kumasi_yoka_registration.db')
     c = conn.cursor()
     
-    c.execute('''INSERT INTO volunteers 
-                 (official_name, date_of_birth, age, residence, active_phone, email, interests, allergies,
-                  father_name, father_phone, father_church_member, father_branch, father_position, father_residence, father_occupation,
-                  mother_name, mother_phone, mother_church_member, mother_branch, mother_position, mother_residence, mother_occupation,
-                  guardian_name, guardian_phone, guardian_church_member, guardian_branch, guardian_position, guardian_residence, guardian_occupation,
-                  shs_school, shs_program, tertiary_school, tertiary_program, current_class,
-                  job_name, job_position, job_experience, job_location,
-                  church_branch, church_duration, church_position,
-                  yoka_hall, yoka_position, yoka_participation, youth_camps_attended,
+    c.execute('''INSERT INTO members 
+                 (official_name, date_of_birth, age, residence, active_phone, email, profile_picture,
+                  school_name, school_level, school_class, school_house, residence_status, residence_name,
+                  church_branch, yoka_hall, youth_camps_attended,
+                  is_diaspora, diaspora_country, diaspora_job, diaspora_school, diaspora_education_level,
+                  parent_name, parent_phone, parent_relationship, parent_occupation,
                   submission_date)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
               (data['official_name'], data['date_of_birth'], data['age'], data['residence'], 
-               data['active_phone'], data['email'], data['interests'], data['allergies'],
-               data['father_name'], data['father_phone'], data['father_church_member'], 
-               data['father_branch'], data['father_position'], data['father_residence'], data['father_occupation'],
-               data['mother_name'], data['mother_phone'], data['mother_church_member'], 
-               data['mother_branch'], data['mother_position'], data['mother_residence'], data['mother_occupation'],
-               data['guardian_name'], data['guardian_phone'], data['guardian_church_member'], 
-               data['guardian_branch'], data['guardian_position'], data['guardian_residence'], data['guardian_occupation'],
-               data['shs_school'], data['shs_program'], data['tertiary_school'], data['tertiary_program'], data['current_class'],
-               data['job_name'], data['job_position'], data['job_experience'], data['job_location'],
-               data['church_branch'], data['church_duration'], data['church_position'],
-               data['yoka_hall'], data['yoka_position'], data['yoka_participation'], data['youth_camps_attended'],
+               data['active_phone'], data['email'], profile_picture,
+               data['school_name'], data['school_level'], data['school_class'], 
+               data['school_house'], data['residence_status'], data['residence_name'],
+               data['church_branch'], data['yoka_hall'], data['youth_camps_attended'],
+               data['is_diaspora'], data['diaspora_country'], data['diaspora_job'], 
+               data['diaspora_school'], data['diaspora_education_level'],
+               data['parent_name'], data['parent_phone'], data['parent_relationship'], 
+               data['parent_occupation'],
                datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     
     conn.commit()
     conn.close()
 
-# Function to get all volunteers
-def get_all_volunteers():
-    conn = sqlite3.connect('yoka_volunteers.db')
-    df = pd.read_sql_query("SELECT * FROM volunteers", conn)
+# Function to get all members with safe column selection
+def get_all_members():
+    conn = sqlite3.connect('kumasi_yoka_registration.db')
+    
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(members)")
+    existing_columns = [column[1] for column in c.fetchall()]
+    
+    desired_columns = [
+        'id', 'official_name', 'date_of_birth', 'age', 'residence', 'active_phone', 'email',
+        'school_name', 'school_level', 'school_class', 'school_house', 'residence_status', 'residence_name',
+        'church_branch', 'yoka_hall', 'youth_camps_attended',
+        'is_diaspora', 'diaspora_country', 'diaspora_job', 'diaspora_school', 'diaspora_education_level',
+        'parent_name', 'parent_phone', 'parent_relationship', 'parent_occupation', 'submission_date'
+    ]
+    
+    select_columns = [col for col in desired_columns if col in existing_columns]
+    
+    if select_columns:
+        query = f"SELECT {', '.join(select_columns)} FROM members"
+        df = pd.read_sql_query(query, conn)
+    else:
+        df = pd.DataFrame()
+    
     conn.close()
     return df
 
 # Initialize database
 init_database()
-
-# Page configuration
-st.set_page_config(page_title="YoKA Volunteer Form", page_icon="⛪", layout="wide")
 
 # Session state initialization
 if 'logged_in' not in st.session_state:
@@ -160,459 +190,462 @@ if 'username' not in st.session_state:
     st.session_state.username = None
 if 'form_submitted' not in st.session_state:
     st.session_state.form_submitted = False
+if 'is_diaspora' not in st.session_state:
+    st.session_state.is_diaspora = False
+if 'education_level' not in st.session_state:
+    st.session_state.education_level = "SHS"
+if 'page' not in st.session_state:
+    st.session_state.page = "Login"
+if 'show_success' not in st.session_state:
+    st.session_state.show_success = False
 
-# Sidebar for navigation
-st.sidebar.title("Navigation")
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .stButton > button {
+        width: 100%;
+    }
+    .success-box {
+        background-color: #d4edda;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #28a745;
+        margin: 10px 0;
+    }
+    .info-box {
+        background-color: #d1ecf1;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #17a2b8;
+        margin: 10px 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Sidebar navigation (only show when logged in)
 if st.session_state.logged_in:
+    st.sidebar.title("Navigation")
     st.sidebar.write(f"Welcome, {st.session_state.username}!")
     if st.sidebar.button("Logout", key="logout_button"):
         st.session_state.logged_in = False
         st.session_state.username = None
         st.rerun()
     
-    page = st.sidebar.radio("Go to", ["View Submissions", "Export Data"], key="nav_admin")
-else:
-    page = st.sidebar.radio("Go to", ["Volunteer Form", "Admin Login"], key="nav_public")
+    st.session_state.page = st.sidebar.radio("Go to", ["Registration Form", "View Registrations", "Export Data"])
 
-# Admin Login Page
-if page == "Admin Login" and not st.session_state.logged_in:
-    st.title("Admin Login")
+# Login Page (Landing Page)
+if not st.session_state.logged_in:
+    st.title("⛪ Kumasi District YoKA Registration System")
+    st.markdown("---")
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
+        st.markdown("### Welcome to Kumasi District YoKA")
+        st.markdown("Please login to access the registration form")
+        
         with st.form("login_form"):
             username = st.text_input("Username", key="login_username")
             password = st.text_input("Password", type="password", key="login_password")
-            submit = st.form_submit_button("Login")
+            submit = st.form_submit_button("Login", use_container_width=True)
             
             if submit:
                 user = check_login(username, password)
                 if user:
                     st.session_state.logged_in = True
                     st.session_state.username = username
-                    st.success("Login successful!")
+                    st.success("Login successful! Redirecting...")
                     st.rerun()
                 else:
                     st.error("Invalid username or password")
         
         st.info("Default admin credentials: username: admin, password: admin123")
+        
+        # Register new account option
+        st.markdown("---")
+        st.markdown("### New User?")
+        with st.expander("Create New Account"):
+            new_username = st.text_input("New Username")
+            new_password = st.text_input("New Password", type="password")
+            confirm_password = st.text_input("Confirm Password", type="password")
+            if st.button("Create Account"):
+                if new_password == confirm_password and new_username:
+                    conn = sqlite3.connect('kumasi_yoka_registration.db')
+                    c = conn.cursor()
+                    try:
+                        hashed_pw = hash_password(new_password)
+                        c.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
+                                (new_username, hashed_pw, 0))
+                        conn.commit()
+                        st.success("Account created! Please login.")
+                    except sqlite3.IntegrityError:
+                        st.error("Username already exists!")
+                    conn.close()
+                else:
+                    st.error("Passwords don't match or username is empty")
 
-# Volunteer Form Page
-elif page == "Volunteer Form" and not st.session_state.logged_in:
-    st.title("⛪ YoKA Youth Volunteer Registration Form")
-    st.write("Please fill out the form below to volunteer with YoKA.")
-    st.markdown("---")
+# Main Registration Form (only visible after login)
+elif st.session_state.logged_in and st.session_state.page == "Registration Form":
+    st.title("⛪ Kumasi District YoKA Registration Form")
+    st.markdown(f"### Welcome, {st.session_state.username}!")
+    st.markdown("Please fill out the form below to register with the Kumasi District YoKA.")
+    
+    # Show success message if form was just submitted
+    if st.session_state.show_success:
+        st.markdown("""
+        <div class="success-box">
+            <h3>✅ Registration Successful!</h3>
+            <p><strong>Welcome to Kumasi District YoKA!</strong></p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.balloons()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Register Another Member", key="register_another"):
+                st.session_state.show_success = False
+                st.session_state.form_submitted = False
+                st.rerun()
+        with col2:
+            if st.button("View All Members", key="view_members"):
+                st.session_state.show_success = False
+                st.session_state.page = "View Registrations"
+                st.rerun()
+        st.stop()
     
     # Reset form submitted state when coming back to the form
     if st.session_state.form_submitted:
         st.session_state.form_submitted = False
     
-    with st.form("volunteer_form"):
+    with st.form("registration_form", clear_on_submit=False):
         # Personal Information
         st.header("📋 Personal Information")
         col1, col2 = st.columns(2)
         
         with col1:
-            official_name = st.text_input("Official Name *", key="official_name")
-            date_of_birth = st.date_input("Date of Birth *", min_value=datetime(1950,1,1), 
-                                         max_value=datetime.now(), key="dob")
-            residence = st.text_input("Where you live *", key="residence")
-            email = st.text_input("Email", key="email")
+            official_name = st.text_input("Full Name *", key="official_name")
+            date_of_birth = st.date_input("Date of Birth (Optional)", min_value=datetime(1950,1,1), 
+                                         max_value=datetime.now(), key="dob", value=None)
+            residence = st.text_input("Residential Address *", key="residence")
+            email = st.text_input("Email Address", key="email")
+            
+            # Profile Picture
+            st.markdown("### 📸 Profile Picture")
+            profile_pic = st.file_uploader("Upload Profile Picture", type=['jpg', 'jpeg', 'png'])
+            if profile_pic:
+                st.image(profile_pic, width=150, caption="Preview")
         
         with col2:
-            # Calculate age from date of birth
-            if date_of_birth:
-                today = datetime.now().date()
-                age = today.year - date_of_birth.year - ((today.month, today.day) < (date_of_birth.month, date_of_birth.day))
-                st.write(f"**Age:** {age} years")
-            else:
-                age = 0
-                st.write("**Age:** Will be calculated from DOB")
+            # Manual age input
+            age = st.number_input("Age *", min_value=1, max_value=120, value=18, step=1, key="age")
+            active_phone = st.text_input("Active Phone Number(s) *", key="active_phone")
             
-            active_phone = st.text_input("Active Phone Numbers *", key="active_phone")
-            interests = st.text_area("Interests", key="interests", help="What are your hobbies and interests?")
-            allergies = st.text_area("Any allergies", key="allergies", help="Please list any allergies we should know about")
+            if date_of_birth:
+                calculated_age = datetime.now().year - date_of_birth.year
+                st.caption(f"💡 Based on DOB: {calculated_age} years (if different, please adjust age above)")
         
         st.markdown("---")
         
-        # Parents/Guardian Details
-        st.header("👨‍👩‍👧 Parents/Guardian Details")
+        # School Information
+        st.header("🎓 School Information")
         
-        # Father's Details
-        st.subheader("Father's Information")
         col3, col4 = st.columns(2)
-        
         with col3:
-            father_name = st.text_input("Father's Name *", key="father_name")
-            father_phone = st.text_input("Father's Phone Number *", key="father_phone")
-            father_church_member = st.selectbox("Is he a church member? *", 
-                                              ["", "Yes", "No"], key="father_church_member")
+            school_level = st.selectbox("Education Level *", 
+                                       ["SHS", "Tertiary", "Graduate", "Other"],
+                                       key="school_level")
+            school_name = st.text_input("School Name *", key="school_name")
+            school_class = st.text_input("Current Class/Level *", key="school_class")
         
         with col4:
-            father_branch = st.text_input("If church member, which branch?", key="father_branch")
-            father_position = st.text_input("Any position (formal or current)", key="father_position")
-        
-        col5, col6 = st.columns(2)
-        with col5:
-            father_residence = st.text_input("Where he lives *", key="father_residence")
-        with col6:
-            father_occupation = st.text_input("Occupation *", key="father_occupation")
-        
-        st.markdown("---")
-        
-        # Mother's Details
-        st.subheader("Mother's Information")
-        col7, col8 = st.columns(2)
-        
-        with col7:
-            mother_name = st.text_input("Mother's Name *", key="mother_name")
-            mother_phone = st.text_input("Mother's Phone Number *", key="mother_phone")
-            mother_church_member = st.selectbox("Is she a church member? *", 
-                                              ["", "Yes", "No"], key="mother_church_member")
-        
-        with col8:
-            mother_branch = st.text_input("If church member, which branch?", key="mother_branch")
-            mother_position = st.text_input("Any position (formal or current)", key="mother_position")
-        
-        col9, col10 = st.columns(2)
-        with col9:
-            mother_residence = st.text_input("Where she lives *", key="mother_residence")
-        with col10:
-            mother_occupation = st.text_input("Occupation *", key="mother_occupation")
-        
-        st.markdown("---")
-        
-        # Guardian's Details (Optional)
-        st.subheader("Guardian's Information (Optional - if applicable)")
-        col11, col12 = st.columns(2)
-        
-        with col11:
-            guardian_name = st.text_input("Guardian's Name", key="guardian_name")
-            guardian_phone = st.text_input("Guardian's Phone Number", key="guardian_phone")
-            guardian_church_member = st.selectbox("Is he/she a church member?", 
-                                                ["", "Yes", "No"], key="guardian_church_member")
-        
-        with col12:
-            guardian_branch = st.text_input("If church member, which branch?", key="guardian_branch")
-            guardian_position = st.text_input("Any position (formal or current)", key="guardian_position")
-        
-        col13, col14 = st.columns(2)
-        with col13:
-            guardian_residence = st.text_input("Where he/she lives", key="guardian_residence")
-        with col14:
-            guardian_occupation = st.text_input("Occupation", key="guardian_occupation")
-        
-        st.markdown("---")
-        
-        # Educational Information
-        st.header("🎓 Educational Information")
-        
-        st.subheader("Senior High School (SHS)")
-        col15, col16 = st.columns(2)
-        with col15:
-            shs_school = st.text_input("Name of SHS attended *", key="shs_school")
-        with col16:
-            shs_program = st.text_input("Program offered *", key="shs_program")
-        
-        st.subheader("Tertiary Education (Optional)")
-        col17, col18 = st.columns(2)
-        with col17:
-            tertiary_school = st.text_input("Name of Tertiary Institution", key="tertiary_school")
-        with col18:
-            tertiary_program = st.text_input("Program offered", key="tertiary_program")
-        
-        current_class = st.text_input("Current class or level *", key="current_class")
-        
-        st.markdown("---")
-        
-        # Occupation/Apprenticeship
-        st.header("💼 Occupation/Apprenticeship")
-        st.write("(Leave blank if not applicable)")
-        
-        col19, col20 = st.columns(2)
-        with col19:
-            job_name = st.text_input("Name of job", key="job_name")
-            job_position = st.text_input("Position", key="job_position")
-        
-        with col20:
-            job_experience = st.text_input("Number of years of experience", key="job_experience")
-            job_location = st.text_input("Location of job", key="job_location")
+            school_house = st.text_input("House (if applicable)", key="school_house")
+            residence_status = st.selectbox("Residence Status *", 
+                                           ["Day Student", "Boarder"], key="residence_status")
+            residence_name = st.text_input("Residence/Hostel Name (if boarder)", key="residence_name")
         
         st.markdown("---")
         
         # Church Information
         st.header("⛪ Church Information")
         
-        col21, col22 = st.columns(2)
-        with col21:
-            church_branch = st.text_input("Name of branch *", key="church_branch")
-        with col22:
-            church_duration = st.text_input("How long you've been at the branch *", key="church_duration")
+        # Branch selection
+        branches = ["", "Kumasi Central", "Asokwa", "Tafo", "Suame", "Bantama", 
+                   "Oforikrom", "Ayigya", "Kentinkrono", "Ahinsan", "Atonsu", 
+                   "Bohyen", "Dichemso", "Abuakwa", "Other (Ghana)", "Other Country"]
         
-        church_position = st.text_input("Position holding (formal/current)", key="church_position")
+        col5, col6 = st.columns(2)
+        with col5:
+            church_branch = st.selectbox("Church Branch *", branches, key="church_branch")
+            if church_branch == "Other (Ghana)":
+                church_branch = st.text_input("Specify Branch in Ghana *", key="other_branch_gh")
+            elif church_branch == "Other Country":
+                church_branch = st.text_input("Specify Branch and Country *", key="other_branch_country")
         
-        st.markdown("---")
-        
-        # YoKA Info
-        st.header("🌟 YoKA Information")
-        
-        col23, col24 = st.columns(2)
-        with col23:
-            yoka_hall = st.selectbox("Hall *", 
-                                    ["", "Hall A", "Hall B", "Hall C", "Hall D", "Other"], 
+        with col6:
+            yoka_hall = st.selectbox("YoKA Hall *", 
+                                    ["", "Hall A", "Hall B", "Hall C", "Hall D", "Hall E", "Other"],
                                     key="yoka_hall")
-        with col24:
-            yoka_position = st.text_input("Position (formal/current)", key="yoka_position")
+            if yoka_hall == "Other":
+                yoka_hall = st.text_input("Specify Hall", key="other_hall")
         
-        yoka_participation = st.text_area("Any participation at the hall", key="yoka_participation")
-        youth_camps_attended = st.text_input("Number of Youth Camps attended", key="youth_camps_attended")
+        # Number of youth camps attended with range selector
+        youth_camps = st.slider("Number of YoKA Youth Camps Attended *", 
+                               min_value=0, max_value=20, value=0, step=1,
+                               key="youth_camps")
+        st.markdown(f"**Selected:** {youth_camps} camp(s)")
         
         st.markdown("---")
         
-        # Submit button
-        submitted = st.form_submit_button("Submit Registration")
+        # Diaspora Information
+        st.header("🌍 Diaspora Information")
+        is_diaspora = st.checkbox("Are you currently in the diaspora (outside Ghana)?", key="is_diaspora")
+        
+        if is_diaspora:
+            col7, col8 = st.columns(2)
+            with col7:
+                diaspora_country = st.text_input("Which country are you in? *", key="diaspora_country")
+                
+                # Radio button to choose between job or school
+                diaspora_status = st.radio("Are you:", ["Working", "Studying", "Both"], key="diaspora_status")
+                
+                if diaspora_status in ["Working", "Both"]:
+                    diaspora_job = st.text_input("Current Job/Profession", key="diaspora_job")
+                else:
+                    diaspora_job = ""
+                
+                if diaspora_status in ["Studying", "Both"]:
+                    diaspora_school = st.text_input("School/Institution", key="diaspora_school")
+                    diaspora_education_level = st.selectbox("Level of Education", 
+                                                           ["Undergraduate", "Graduate", "Masters", "PhD", "Other"],
+                                                           key="diaspora_education_level")
+                else:
+                    diaspora_school = ""
+                    diaspora_education_level = ""
+            with col8:
+                st.info("📌 Note: As a diaspora member, you'll be connected to our online YoKA programs and events.")
+        else:
+            diaspora_country = ""
+            diaspora_job = ""
+            diaspora_school = ""
+            diaspora_education_level = ""
+        
+        st.markdown("---")
+        
+        # Parent/Guardian Information
+        st.header("👨‍👩‍👧 Parent/Guardian Information")
+        
+        col9, col10 = st.columns(2)
+        with col9:
+            parent_name = st.text_input("Parent/Guardian Full Name *", key="parent_name")
+            parent_phone = st.text_input("Parent/Guardian Phone Number *", key="parent_phone")
+        
+        with col10:
+            parent_relationship = st.selectbox("Relationship *", 
+                                              ["", "Father", "Mother", "Guardian", "Other"],
+                                              key="parent_relationship")
+            parent_occupation = st.text_input("Occupation *", key="parent_occupation")
+        
+        st.markdown("---")
+        
+        # Submit button inside form
+        submitted = st.form_submit_button("Register for Kumasi District YoKA", use_container_width=True)
         
         if submitted:
             # Validate required fields
             required_fields = [
-                official_name, date_of_birth, residence, active_phone,
-                father_name, father_phone, father_church_member, father_residence, father_occupation,
-                mother_name, mother_phone, mother_church_member, mother_residence, mother_occupation,
-                shs_school, shs_program, current_class,
-                church_branch, church_duration, yoka_hall
+                official_name, residence, active_phone, age,
+                school_name, school_class, residence_status,
+                church_branch, yoka_hall,
+                parent_name, parent_phone, parent_relationship, parent_occupation
             ]
             
-            # Check if all required fields are filled
-            if all(required_fields) and father_church_member and mother_church_member and yoka_hall:
+            if is_diaspora:
+                if not diaspora_country:
+                    st.error("Please specify your diaspora country")
+                    st.stop()
+            
+            if all(required_fields) and school_level and church_branch and yoka_hall and parent_relationship:
+                # Convert date of birth to string if provided
+                dob_str = date_of_birth.strftime("%Y-%m-%d") if date_of_birth else ""
                 
-                # Calculate age
-                today = datetime.now().date()
-                age = today.year - date_of_birth.year - ((today.month, today.day) < (date_of_birth.month, date_of_birth.day))
+                # Convert profile picture to bytes
+                profile_pic_bytes = None
+                if profile_pic:
+                    profile_pic_bytes = profile_pic.getvalue()
                 
                 # Prepare data for saving
                 data = {
                     'official_name': official_name,
-                    'date_of_birth': date_of_birth.strftime("%Y-%m-%d"),
+                    'date_of_birth': dob_str,
                     'age': age,
                     'residence': residence,
                     'active_phone': active_phone,
                     'email': email,
-                    'interests': interests,
-                    'allergies': allergies,
                     
-                    'father_name': father_name,
-                    'father_phone': father_phone,
-                    'father_church_member': father_church_member,
-                    'father_branch': father_branch,
-                    'father_position': father_position,
-                    'father_residence': father_residence,
-                    'father_occupation': father_occupation,
-                    
-                    'mother_name': mother_name,
-                    'mother_phone': mother_phone,
-                    'mother_church_member': mother_church_member,
-                    'mother_branch': mother_branch,
-                    'mother_position': mother_position,
-                    'mother_residence': mother_residence,
-                    'mother_occupation': mother_occupation,
-                    
-                    'guardian_name': guardian_name,
-                    'guardian_phone': guardian_phone,
-                    'guardian_church_member': guardian_church_member,
-                    'guardian_branch': guardian_branch,
-                    'guardian_position': guardian_position,
-                    'guardian_residence': guardian_residence,
-                    'guardian_occupation': guardian_occupation,
-                    
-                    'shs_school': shs_school,
-                    'shs_program': shs_program,
-                    'tertiary_school': tertiary_school,
-                    'tertiary_program': tertiary_program,
-                    'current_class': current_class,
-                    
-                    'job_name': job_name,
-                    'job_position': job_position,
-                    'job_experience': job_experience,
-                    'job_location': job_location,
+                    'school_name': school_name,
+                    'school_level': school_level,
+                    'school_class': school_class,
+                    'school_house': school_house,
+                    'residence_status': residence_status,
+                    'residence_name': residence_name if residence_status == "Boarder" else "",
                     
                     'church_branch': church_branch,
-                    'church_duration': church_duration,
-                    'church_position': church_position,
-                    
                     'yoka_hall': yoka_hall,
-                    'yoka_position': yoka_position,
-                    'yoka_participation': yoka_participation,
-                    'youth_camps_attended': youth_camps_attended
+                    'youth_camps_attended': youth_camps,
+                    
+                    'is_diaspora': is_diaspora,
+                    'diaspora_country': diaspora_country if is_diaspora else "",
+                    'diaspora_job': diaspora_job if is_diaspora else "",
+                    'diaspora_school': diaspora_school if is_diaspora else "",
+                    'diaspora_education_level': diaspora_education_level if is_diaspora else "",
+                    
+                    'parent_name': parent_name,
+                    'parent_phone': parent_phone,
+                    'parent_relationship': parent_relationship,
+                    'parent_occupation': parent_occupation
                 }
                 
-                save_volunteer(data)
+                save_member(data, profile_pic_bytes)
                 st.session_state.form_submitted = True
-                st.success("Thank you for registering! Your information has been submitted successfully.")
-                st.balloons()
+                st.session_state.show_success = True
                 st.rerun()
             else:
                 st.error("Please fill in all required fields (*)")
-                if not father_church_member or not mother_church_member or not yoka_hall:
-                    st.warning("Please ensure all dropdown selections are made (not left blank)")
 
-# View Submissions Page (Admin only)
-elif page == "View Submissions" and st.session_state.logged_in:
-    st.title("📋 YoKA Volunteer Submissions")
+# View Registrations Page
+elif st.session_state.logged_in and st.session_state.page == "View Registrations":
+    st.title("📋 Kumasi District YoKA - Registered Members")
     
-    # Get all volunteers
-    df = get_all_volunteers()
+    df = get_all_members()
     
     if not df.empty:
-        # Display statistics
-        st.header("Statistics")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Volunteers", len(df))
-        with col2:
-            st.metric("Average Age", round(df['age'].mean(), 1) if 'age' in df.columns else "N/A")
-        with col3:
-            st.metric("Unique Branches", df['church_branch'].nunique() if 'church_branch' in df.columns else "N/A")
-        with col4:
-            st.metric("Halls", df['yoka_hall'].nunique() if 'yoka_hall' in df.columns else "N/A")
+        # Statistics
+        st.header("District Statistics")
+        
+        stat_cols = []
+        if 'official_name' in df.columns:
+            stat_cols.append(("Total Members", len(df)))
+        if 'age' in df.columns:
+            stat_cols.append(("Average Age", round(df['age'].mean(), 1)))
+        if 'youth_camps_attended' in df.columns:
+            stat_cols.append(("Youth Camps (Avg)", round(df['youth_camps_attended'].mean(), 1)))
+        if 'is_diaspora' in df.columns:
+            stat_cols.append(("Diaspora Members", df['is_diaspora'].sum()))
+        if 'church_branch' in df.columns:
+            stat_cols.append(("Unique Branches", df['church_branch'].nunique()))
+        
+        if stat_cols:
+            cols = st.columns(len(stat_cols))
+            for idx, (label, value) in enumerate(stat_cols):
+                with cols[idx]:
+                    st.metric(label, value)
         
         st.divider()
         
-        # Display data table
-        st.header("Volunteer List")
+        # Search and filter
+        st.header("Member List")
+        col_search, col_filter1, col_filter2 = st.columns([2, 1, 1])
+        with col_search:
+            search_term = st.text_input("Search by name or phone")
+        with col_filter1:
+            if 'school_level' in df.columns:
+                level_filter = st.selectbox("Filter by Level", ["All"] + sorted(df['school_level'].dropna().unique().tolist()))
+            else:
+                level_filter = "All"
+        with col_filter2:
+            if 'is_diaspora' in df.columns:
+                diaspora_filter = st.selectbox("Filter by Location", ["All", "Ghana", "Diaspora"])
+            else:
+                diaspora_filter = "All"
         
-        # Select columns to display
-        display_columns = ['id', 'official_name', 'age', 'active_phone', 'church_branch', 'yoka_hall', 'submission_date']
-        available_columns = [col for col in display_columns if col in df.columns]
-        
-        # Add search/filter
-        search_term = st.text_input("Search by name or phone", key="search_term")
+        # Apply filters
+        df_filtered = df.copy()
         if search_term and 'official_name' in df.columns:
-            mask = (df['official_name'].str.contains(search_term, case=False, na=False) | 
-                   df['active_phone'].str.contains(search_term, case=False, na=False))
-            df_filtered = df[mask]
-        else:
-            df_filtered = df
+            mask = (df_filtered['official_name'].str.contains(search_term, case=False, na=False) | 
+                   df_filtered['active_phone'].str.contains(search_term, case=False, na=False))
+            df_filtered = df_filtered[mask]
+        if level_filter != "All" and 'school_level' in df_filtered.columns:
+            df_filtered = df_filtered[df_filtered['school_level'] == level_filter]
+        if diaspora_filter != "All" and 'is_diaspora' in df_filtered.columns:
+            if diaspora_filter == "Ghana":
+                df_filtered = df_filtered[df_filtered['is_diaspora'] == 0]
+            else:
+                df_filtered = df_filtered[df_filtered['is_diaspora'] == 1]
         
-        # Display the filtered dataframe
-        st.dataframe(df_filtered[available_columns] if available_columns else df_filtered, 
-                    use_container_width=True)
+        # Display table
+        display_columns = ['id', 'official_name', 'age', 'active_phone', 'church_branch', 'yoka_hall', 'youth_camps_attended', 'submission_date']
+        available_display = [col for col in display_columns if col in df_filtered.columns]
+        if available_display:
+            st.dataframe(df_filtered[available_display], use_container_width=True)
         
         # View individual record
-        st.header("View Individual Record")
+        st.header("View Member Details")
         if len(df_filtered) > 0 and 'id' in df_filtered.columns:
-            selected_id = st.selectbox("Select volunteer ID", df_filtered['id'].tolist(), key="select_volunteer")
+            selected_id = st.selectbox("Select Member ID", df_filtered['id'].tolist())
             if selected_id:
                 record = df_filtered[df_filtered['id'] == selected_id].iloc[0]
                 
-                # Personal Information
                 with st.expander("Personal Information", expanded=True):
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write(f"**Official Name:** {record.get('official_name', 'N/A')}")
-                        st.write(f"**Date of Birth:** {record.get('date_of_birth', 'N/A')}")
+                        st.write(f"**Full Name:** {record.get('official_name', 'N/A')}")
+                        st.write(f"**Date of Birth:** {record.get('date_of_birth', 'Not provided')}")
                         st.write(f"**Age:** {record.get('age', 'N/A')}")
                         st.write(f"**Residence:** {record.get('residence', 'N/A')}")
                     with col2:
                         st.write(f"**Phone:** {record.get('active_phone', 'N/A')}")
                         st.write(f"**Email:** {record.get('email', 'N/A')}")
-                        st.write(f"**Interests:** {record.get('interests', 'N/A')}")
-                        st.write(f"**Allergies:** {record.get('allergies', 'N/A')}")
                 
-                # Parents Information
-                with st.expander("Parents/Guardian Information"):
-                    tab1, tab2, tab3 = st.tabs(["Father", "Mother", "Guardian"])
-                    
-                    with tab1:
-                        st.write(f"**Name:** {record.get('father_name', 'N/A')}")
-                        st.write(f"**Phone:** {record.get('father_phone', 'N/A')}")
-                        st.write(f"**Church Member:** {record.get('father_church_member', 'N/A')}")
-                        st.write(f"**Branch:** {record.get('father_branch', 'N/A')}")
-                        st.write(f"**Position:** {record.get('father_position', 'N/A')}")
-                        st.write(f"**Residence:** {record.get('father_residence', 'N/A')}")
-                        st.write(f"**Occupation:** {record.get('father_occupation', 'N/A')}")
-                    
-                    with tab2:
-                        st.write(f"**Name:** {record.get('mother_name', 'N/A')}")
-                        st.write(f"**Phone:** {record.get('mother_phone', 'N/A')}")
-                        st.write(f"**Church Member:** {record.get('mother_church_member', 'N/A')}")
-                        st.write(f"**Branch:** {record.get('mother_branch', 'N/A')}")
-                        st.write(f"**Position:** {record.get('mother_position', 'N/A')}")
-                        st.write(f"**Residence:** {record.get('mother_residence', 'N/A')}")
-                        st.write(f"**Occupation:** {record.get('mother_occupation', 'N/A')}")
-                    
-                    with tab3:
-                        if record.get('guardian_name'):
-                            st.write(f"**Name:** {record.get('guardian_name', 'N/A')}")
-                            st.write(f"**Phone:** {record.get('guardian_phone', 'N/A')}")
-                            st.write(f"**Church Member:** {record.get('guardian_church_member', 'N/A')}")
-                            st.write(f"**Branch:** {record.get('guardian_branch', 'N/A')}")
-                            st.write(f"**Position:** {record.get('guardian_position', 'N/A')}")
-                            st.write(f"**Residence:** {record.get('guardian_residence', 'N/A')}")
-                            st.write(f"**Occupation:** {record.get('guardian_occupation', 'N/A')}")
-                        else:
-                            st.info("No guardian information provided")
+                if 'school_name' in record.index:
+                    with st.expander("School Information"):
+                        st.write(f"**School Level:** {record.get('school_level', 'N/A')}")
+                        st.write(f"**School Name:** {record.get('school_name', 'N/A')}")
+                        st.write(f"**Class/Level:** {record.get('school_class', 'N/A')}")
+                        st.write(f"**House:** {record.get('school_house', 'N/A')}")
+                        st.write(f"**Residence Status:** {record.get('residence_status', 'N/A')}")
+                        if record.get('residence_name'):
+                            st.write(f"**Residence Name:** {record.get('residence_name', 'N/A')}")
                 
-                # Educational Information
-                with st.expander("Educational Information"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.subheader("SHS")
-                        st.write(f"**School:** {record.get('shs_school', 'N/A')}")
-                        st.write(f"**Program:** {record.get('shs_program', 'N/A')}")
-                    with col2:
-                        st.subheader("Tertiary")
-                        st.write(f"**School:** {record.get('tertiary_school', 'N/A')}")
-                        st.write(f"**Program:** {record.get('tertiary_program', 'N/A')}")
-                    st.write(f"**Current Class/Level:** {record.get('current_class', 'N/A')}")
+                if 'church_branch' in record.index:
+                    with st.expander("Church & YoKA Information"):
+                        st.write(f"**Church Branch:** {record.get('church_branch', 'N/A')}")
+                        st.write(f"**YoKA Hall:** {record.get('yoka_hall', 'N/A')}")
+                        st.write(f"**Youth Camps Attended:** {record.get('youth_camps_attended', 'N/A')}")
                 
-                # Occupation/Church/YoKA
-                with st.expander("Occupation, Church & YoKA Information"):
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.subheader("Occupation")
-                        st.write(f"**Job:** {record.get('job_name', 'N/A')}")
-                        st.write(f"**Position:** {record.get('job_position', 'N/A')}")
-                        st.write(f"**Experience:** {record.get('job_experience', 'N/A')} years")
-                        st.write(f"**Location:** {record.get('job_location', 'N/A')}")
-                    
-                    with col2:
-                        st.subheader("Church")
-                        st.write(f"**Branch:** {record.get('church_branch', 'N/A')}")
-                        st.write(f"**Duration:** {record.get('church_duration', 'N/A')}")
-                        st.write(f"**Position:** {record.get('church_position', 'N/A')}")
-                    
-                    with col3:
-                        st.subheader("YoKA")
-                        st.write(f"**Hall:** {record.get('yoka_hall', 'N/A')}")
-                        st.write(f"**Position:** {record.get('yoka_position', 'N/A')}")
-                        st.write(f"**Participation:** {record.get('yoka_participation', 'N/A')}")
-                        st.write(f"**Camps Attended:** {record.get('youth_camps_attended', 'N/A')}")
+                if record.get('is_diaspora'):
+                    with st.expander("Diaspora Information"):
+                        st.write(f"**Country:** {record.get('diaspora_country', 'N/A')}")
+                        st.write(f"**Job:** {record.get('diaspora_job', 'N/A')}")
+                        st.write(f"**School:** {record.get('diaspora_school', 'N/A')}")
+                        st.write(f"**Education Level:** {record.get('diaspora_education_level', 'N/A')}")
                 
-                st.write(f"**Submitted on:** {record.get('submission_date', 'N/A')}")
+                if 'parent_name' in record.index:
+                    with st.expander("Parent/Guardian Information"):
+                        st.write(f"**Name:** {record.get('parent_name', 'N/A')}")
+                        st.write(f"**Phone:** {record.get('parent_phone', 'N/A')}")
+                        st.write(f"**Relationship:** {record.get('parent_relationship', 'N/A')}")
+                        st.write(f"**Occupation:** {record.get('parent_occupation', 'N/A')}")
+                
+                st.write(f"**Registered on:** {record.get('submission_date', 'N/A')}")
     else:
-        st.info("No volunteer submissions yet.")
+        st.info("No registrations yet. Please register a new member to get started.")
 
-# Export Data Page (Admin only)
-elif page == "Export Data" and st.session_state.logged_in:
-    st.title("📥 Export Data")
+# Export Data Page
+elif st.session_state.logged_in and st.session_state.page == "Export Data":
+    st.title("📥 Export Registration Data")
     
-    df = get_all_volunteers()
+    df = get_all_members()
     
     if not df.empty:
-        st.write(f"Total records: {len(df)}")
+        st.write(f"Total registered members: {len(df)}")
         
-        # Export as CSV
         csv = df.to_csv(index=False)
         st.download_button(
             label="Download data as CSV",
             data=csv,
-            file_name=f"yoka_volunteers_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv",
-            key="download_button"
+            file_name=f"kumasi_district_yoka_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
         )
         
-        # Show preview
         st.subheader("Data Preview")
         st.dataframe(df.head(10), use_container_width=True)
     else:
@@ -620,5 +653,5 @@ elif page == "Export Data" and st.session_state.logged_in:
 
 # Footer
 st.sidebar.divider()
-st.sidebar.caption("YoKA Volunteer Management System v1.0")
+st.sidebar.caption("Kumasi District YoKA Registration System v2.0")
 st.sidebar.caption("© 2024 All Rights Reserved")
