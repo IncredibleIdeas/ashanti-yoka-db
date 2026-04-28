@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Kumasi District YoKA Registration System</title>
+    <!-- Tailwind CSS v3 + Font Awesome + Google Fonts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js CDN for analytics charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* custom transitions & scroll */
+        body {
+            font-family: 'Inter', sans-serif;
+            transition: background 0.2s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 20px 25px -12px rgba(0,0,0,0.1);
+            transition: all 0.2s;
+        }
+        .sidebar-link-active {
+            background-color: #1e3a8a20;
+            border-left: 4px solid #1e3a8a;
+            color: #1e3a8a;
+            font-weight: 600;
+        }
+        .transition-smooth {
+            transition: all 0.25s ease;
+        }
+        /* custom chart containers */
+        canvas {
+            max-height: 280px;
+        }
+        /* scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b82f6;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans antialiased">
+
+    <!-- MAIN APP WRAPPER with dynamic page state -->
+    <div id="app" class="min-h-screen flex flex-col">
+        <!-- TOPBAR (mobile friendly) -->
+        <header class="bg-white shadow-sm sticky top-0 z-30 border-b border-gray-200">
+            <div class="container mx-auto px-4 py-3 flex flex-wrap items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-church text-2xl text-blue-800"></i>
+                    <span class="font-bold text-xl text-gray-800 hidden sm:inline">Kumasi District YoKA</span>
+                    <span class="font-bold text-lg text-gray-800 sm:hidden">YoKA</span>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <div class="relative">
+                        <i class="fas fa-bell text-gray-500 text-lg cursor-pointer hover:text-blue-700"></i>
+                        <span class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1">3</span>
+                    </div>
+                    <div class="flex items-center space-x-2 bg-gray-100 px-3 py-1 rounded-full">
+                        <i class="fas fa-user-circle text-gray-600"></i>
+                        <span id="userRoleDisplay" class="text-sm font-medium text-gray-700">Branch Executive</span>
+                    </div>
+                    <button id="logoutBtn" class="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1 rounded-lg transition">
+                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex flex-1 flex-col md:flex-row">
+            <!-- SIDEBAR (responsive) -->
+            <aside class="w-full md:w-72 bg-white border-r border-gray-200 md:min-h-screen shadow-sm">
+                <nav class="p-4 space-y-1">
+                    <div class="mb-4 pb-2 border-b">
+                        <p class="text-xs text-gray-400 uppercase tracking-wide">Welcome,</p>
+                        <p id="userName" class="font-semibold text-gray-800">Kwame Asare</p>
+                        <p id="userBranch" class="text-xs text-blue-600">Kumasi Central Branch</p>
+                    </div>
+                    <!-- dynamic nav items -->
+                    <div id="sidebarNav" class="space-y-1"></div>
+                </nav>
+                <div class="absolute bottom-4 left-4 text-xs text-gray-400 hidden md:block">
+                    © 2025 Kumasi District YoKA
+                </div>
+            </aside>
+
+            <!-- MAIN CONTENT AREA -->
+            <main class="flex-1 p-4 md:p-6 overflow-auto">
+                <div id="pageContent" class="animate-fade-in">
+                    <!-- Dynamic content loads here -->
+                    <div class="flex justify-center items-center h-64">
+                        <div class="text-center text-gray-400">
+                            <i class="fas fa-spinner fa-pulse text-3xl mb-2"></i>
+                            <p>Loading dashboard...</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+        <!-- mobile footer note -->
+        <div class="text-center text-xs text-gray-400 py-2 border-t md:hidden">
+            © 2025 Kumasi District YoKA Registration
+        </div>
+    </div>
+
+    <script>
+        // ---------- MOCK DATA / STATE (fully functional front-end demo) ----------
+        // Simulates complete RBAC & registration system
+        let currentUser = {
+            id: 2,
+            username: "exec_central",
+            fullName: "Kwame Asare",
+            role: "branch_executive",   // can be "super_admin", "admin", "branch_executive"
+            branchId: 1,
+            branchName: "Kumasi Central",
+            branchCode: "KMC"
+        };
+        
+        // Global members array (rich data)
+        let members = [
+            { id: 1, officialName: "Adjoa Mensah", age: 18, gender: "Female", activePhone: "0244123456", churchBranch: "Kumasi Central", yokaHall: "Hall A", schoolName: "Kumasi High School", schoolLevel: "SHS", residence: "Asokwa", submissionDate: "2025-02-10", isVerified: true, workStatus: "None", hasChurchPosition: true, churchPositionType: "Sevent Member", motherName: "Esi Mensah", fatherName: "Kwame Mensah", interests: "Evangelism", talents: "Singing" },
+            { id: 2, officialName: "Michael Osei", age: 20, gender: "Male", activePhone: "0245987654", churchBranch: "Kumasi Central", yokaHall: "Hall B", schoolName: "Opoku Ware", schoolLevel: "Tertiary", residence: "Bantama", submissionDate: "2025-02-15", isVerified: false, workStatus: "Apprenticeship", workName: "Mechanic Shop", isDiaspora: false, motherName: "Grace Osei", fatherName: "Joseph Osei", talents: "Football", interests: "Sports Ministry" },
+            { id: 3, officialName: "Ama Serwaa", age: 19, gender: "Female", activePhone: "0556781234", churchBranch: "Asokwa", yokaHall: "Hall C", schoolName: "Yaa Asantewaa", schoolLevel: "SHS", residence: "Asokwa", submissionDate: "2025-02-20", isVerified: true, workStatus: "Part-time", hasChurchPosition: true, churchPositionName: "YoKA Executive", diasporaCountry: "", motherName: "Abena Serwaa", fatherName: "Kofi Serwaa", talents: "Dancing", interests: "Worship Team" },
+            { id: 4, officialName: "Emmanuel Tetteh", age: 22, gender: "Male", activePhone: "0249001122", churchBranch: "Tafo", yokaHall: "Hall A", schoolName: "KNUST", schoolLevel: "Tertiary", residence: "Tafo", submissionDate: "2025-03-01", isVerified: false, workStatus: "Internship", workPosition: "Software Dev", isDiaspora: false, motherName: "Rosemond Tetteh", fatherName: "Daniel Tetteh", medicalConditions: "Asthma", talents: "Graphic Design", interests: "Media Team" }
+        ];
+        
+        // branches list
+        let branches = [
+            { id: 1, branchName: "Kumasi Central", branchCode: "KMC", location: "CBD", contactPerson: "Rev. John Doe", contactPhone: "0244000001" },
+            { id: 2, branchName: "Asokwa", branchCode: "ASK", location: "Asokwa District", contactPerson: "Rev. Jane Smith", contactPhone: "0244000002" },
+            { id: 3, branchName: "Tafo", branchCode: "TAF", location: "Tafo Community", contactPerson: "Rev. Michael Brown", contactPhone: "0244000003" }
+        ];
+        
+        // helper: filter members by user role
+        function getFilteredMembers() {
+            if (currentUser.role === 'super_admin' || currentUser.role === 'admin') {
+                return [...members];
+            } else {
+                return members.filter(m => m.churchBranch === currentUser.branchName);
+            }
+        }
+        
+        // utility to render any page
+        function renderPage(pageId, params = {}) {
+            const container = document.getElementById('pageContent');
+            if (!container) return;
+            
+            if (pageId === 'dashboard') {
+                renderDashboard(container);
+            } else if (pageId === 'registration') {
+                renderRegistrationForm(container);
+            } else if (pageId === 'viewMembers') {
+                renderViewMembers(container);
+            } else if (pageId === 'analytics') {
+                renderAnalytics(container);
+            } else if (pageId === 'exportData') {
+                renderExportData(container);
+            } else if (pageId === 'importData' && (currentUser.role === 'super_admin' || currentUser.role === 'admin')) {
+                renderImportData(container);
+            } else if (pageId === 'branchManagement' && (currentUser.role === 'super_admin' || currentUser.role === 'admin')) {
+                renderBranchManagement(container);
+            } else if (pageId === 'userManagement' && currentUser.role === 'super_admin') {
+                renderUserManagement(container);
+            } else if (pageId === 'emailSettings' && currentUser.role === 'super_admin') {
+                renderEmailSettings(container);
+            } else if (pageId === 'themeCustomizer' && currentUser.role === 'super_admin') {
+                renderThemeCustomizer(container);
+            } else if (pageId === 'auditLog' && currentUser.role === 'super_admin') {
+                renderAuditLog(container);
+            } else {
+                container.innerHTML = `<div class="bg-yellow-50 p-6 rounded-xl"><i class="fas fa-lock mr-2"></i> Access restricted or page not available.</div>`;
+            }
+        }
+        
+        // ================== DASHBOARD ==================
+        function renderDashboard(container) {
+            const filtered = getFilteredMembers();
+            const total = filtered.length;
+            const verifiedCount = filtered.filter(m => m.isVerified).length;
+            const avgAge = filtered.reduce((sum, m) => sum + m.age, 0) / (total || 1);
+            const uniqueSchools = new Set(filtered.map(m => m.schoolName)).size;
+            const recent = filtered.filter(m => new Date(m.submissionDate) > new Date(Date.now() - 30*86400000)).length;
+            
+            container.innerHTML = `
+                <div class="mb-6">
+                    <h1 class="text-2xl font-bold text-gray-800">📊 Dashboard</h1>
+                    <p class="text-gray-500">Welcome back, ${currentUser.fullName} • ${currentUser.branchName} branch</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-blue-700 card-hover"><div class="text-3xl font-bold text-blue-800">${total}</div><div class="text-gray-500">Total Members</div><div class="text-green-600 text-sm">+${recent} this month</div></div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-indigo-500"><div class="text-3xl font-bold text-indigo-700">${avgAge.toFixed(1)}</div><div class="text-gray-500">Average Age</div></div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-emerald-500"><div class="text-3xl font-bold text-emerald-700">${verifiedCount}</div><div class="text-gray-500">Verified Members</div><div class="text-xs">${total ? ((verifiedCount/total)*100).toFixed(0)}% verification rate</div></div>
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-amber-500"><div class="text-3xl font-bold text-amber-700">${uniqueSchools}</div><div class="text-gray-500">Schools Represented</div></div>
+                </div>
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div class="bg-white p-4 rounded-xl shadow"><h3 class="font-semibold mb-3"><i class="fas fa-chart-line text-blue-600 mr-2"></i> Recent Registrations</h3><div class="overflow-x-auto"><table class="min-w-full text-sm"><thead class="bg-gray-50"><tr><th class="p-2 text-left">Name</th><th>Branch</th><th>Date</th><th>Status</th></tr></thead><tbody>${filtered.slice(0,5).map(m => `<tr class="border-b"><td class="p-2">${m.officialName}</td><td>${m.churchBranch}</td><td>${m.submissionDate}</td><td><span class="px-2 py-1 rounded-full text-xs ${m.isVerified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">${m.isVerified ? 'Verified' : 'Pending'}</span></td></tr>`).join('')}</tbody></table></div></div>
+                    <div class="bg-white p-4 rounded-xl shadow"><h3 class="font-semibold mb-3"><i class="fas fa-church"></i>  Hall Distribution</h3><canvas id="hallChart" height="200"></canvas></div>
+                </div>
+            `;
+            // dynamic chart for hall distribution
+            const hallCount = {};
+            filtered.forEach(m => { hallCount[m.yokaHall] = (hallCount[m.yokaHall] || 0) + 1; });
+            const ctx = document.getElementById('hallChart')?.getContext('2d');
+            if(ctx) new Chart(ctx, { type: 'bar', data: { labels: Object.keys(hallCount), datasets: [{ label: 'Members', data: Object.values(hallCount), backgroundColor: '#3b82f6' }] }, options: { responsive: true, maintainAspectRatio: true } });
+        }
+        
+        // ================== REGISTRATION FORM ==================
+        function renderRegistrationForm(container) {
+            container.innerHTML = `
+                <div class="max-w-4xl mx-auto">
+                    <h1 class="text-2xl font-bold mb-2">⛪ YoKA Registration Form</h1>
+                    <p class="text-gray-500 mb-6">Fill in all required fields (*)</p>
+                    <form id="memberForm" class="bg-white p-6 rounded-xl shadow-md space-y-6">
+                        <div class="grid md:grid-cols-2 gap-4"><div><label class="block text-sm font-medium">Full Name *</label><input id="fullName" class="mt-1 w-full border rounded-lg p-2" required></div><div><label>Gender *</label><select id="gender" class="mt-1 w-full border rounded-lg p-2"><option>Male</option><option>Female</option><option>Other</option></select></div></div>
+                        <div class="grid md:grid-cols-2 gap-4"><div><label>Age *</label><input id="age" type="number" min="13" max="30" class="w-full border rounded-lg p-2" required></div><div><label>Active Phone *</label><input id="phone" class="w-full border rounded-lg p-2" required></div></div>
+                        <div><label>Residential Address *</label><input id="residence" class="w-full border rounded-lg p-2" required></div>
+                        <div><label>School Name *</label><input id="school" class="w-full border rounded-lg p-2" required></div>
+                        <div class="grid md:grid-cols-2 gap-4"><div><label>Education Level *</label><select id="schoolLevel" class="w-full border rounded-lg p-2"><option>SHS</option><option>Tertiary</option><option>Graduate</option></select></div><div><label>YoKA Hall *</label><select id="yokaHall" class="w-full border rounded-lg p-2"><option>Hall A</option><option>Hall B</option><option>Hall C</option></select></div></div>
+                        <div><label>Church Branch</label><input id="branch" value="${currentUser.branchName}" readonly class="bg-gray-100 w-full border rounded-lg p-2"></div>
+                        <div class="grid md:grid-cols-2 gap-4"><div><label>Mother's Name</label><input id="motherName" class="w-full border rounded-lg p-2"></div><div><label>Mother's Phone</label><input id="motherPhone" class="w-full border rounded-lg p-2"></div></div>
+                        <div class="grid md:grid-cols-2 gap-4"><div><label>Father's Name</label><input id="fatherName" class="w-full border rounded-lg p-2"></div><div><label>Father's Phone</label><input id="fatherPhone" class="w-full border rounded-lg p-2"></div></div>
+                        <div><label>Talents / Skills</label><input id="talents" placeholder="e.g., Singing, Sports" class="w-full border rounded-lg p-2"></div>
+                        <button type="submit" class="bg-blue-700 hover:bg-blue-800 text-white px-6 py-2 rounded-lg transition"><i class="fas fa-save mr-2"></i>Register Member</button>
+                    </form>
+                </div>
+            `;
+            document.getElementById('memberForm')?.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const newMember = {
+                    id: members.length+1,
+                    officialName: document.getElementById('fullName').value,
+                    age: parseInt(document.getElementById('age').value),
+                    gender: document.getElementById('gender').value,
+                    activePhone: document.getElementById('phone').value,
+                    residence: document.getElementById('residence').value,
+                    schoolName: document.getElementById('school').value,
+                    schoolLevel: document.getElementById('schoolLevel').value,
+                    yokaHall: document.getElementById('yokaHall').value,
+                    churchBranch: currentUser.branchName,
+                    submissionDate: new Date().toISOString().slice(0,10),
+                    isVerified: false,
+                    motherName: document.getElementById('motherName').value,
+                    fatherName: document.getElementById('fatherName').value,
+                    motherPhone: document.getElementById('motherPhone').value,
+                    fatherPhone: document.getElementById('fatherPhone').value,
+                    talents: document.getElementById('talents').value,
+                    interests: ""
+                };
+                members.push(newMember);
+                alert(`✅ ${newMember.officialName} registered successfully!`);
+                renderPage('viewMembers');
+            });
+        }
+        
+        // ================== VIEW MEMBERS ==================
+        function renderViewMembers(container) {
+            const filtered = getFilteredMembers();
+            container.innerHTML = `
+                <h1 class="text-2xl font-bold mb-4">📋 Registered Members</h1>
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+                    <div class="p-4 border-b flex flex-wrap justify-between items-center"><div class="relative"><i class="fas fa-search absolute left-3 top-3 text-gray-400"></i><input id="searchInput" placeholder="Search name or phone" class="pl-9 pr-4 py-2 border rounded-lg w-64"></div><span class="text-sm text-gray-500">Total: ${filtered.length}</span></div>
+                    <div class="overflow-x-auto"><table class="min-w-full text-sm"><thead class="bg-gray-50"><tr><th class="p-3 text-left">Name</th><th>Age</th><th>Phone</th><th>Branch</th><th>Hall</th><th>Status</th><th>Action</th></tr></thead><tbody id="membersTableBody">${filtered.map(m => `<tr class="border-b hover:bg-gray-50"><td class="p-3 font-medium">${m.officialName}</td><td>${m.age}</td><td>${m.activePhone}</td><td>${m.churchBranch}</td><td>${m.yokaHall}</td><td><span class="px-2 py-0.5 rounded-full text-xs ${m.isVerified ? 'bg-green-100 text-green-700' : 'bg-amber-100'}">${m.isVerified ? 'Verified' : 'Pending'}</span></td><td><button onclick="viewMemberDetail(${m.id})" class="text-blue-600 text-sm underline">View</button></td></tr>`).join('')}</tbody></table></div></div>
+            `;
+            window.viewMemberDetail = (id) => {
+                const member = members.find(m => m.id === id);
+                if(member) alert(`📄 Details:\nName: ${member.officialName}\nAge: ${member.age}\nSchool: ${member.schoolName}\nMother: ${member.motherName || 'N/A'}\nTalents: ${member.talents || 'None'}\nVerified: ${member.isVerified ? 'Yes' : 'No'}`);
+            };
+            document.getElementById('searchInput')?.addEventListener('keyup', (e) => {
+                const term = e.target.value.toLowerCase();
+                const filteredRows = filtered.filter(m => m.officialName.toLowerCase().includes(term) || m.activePhone.includes(term));
+                const tbody = document.getElementById('membersTableBody');
+                if(tbody) tbody.innerHTML = filteredRows.map(m => `<tr class="border-b"><td class="p-3">${m.officialName}</td><td>${m.age}</td><td>${m.activePhone}</td><td>${m.churchBranch}</td><td>${m.yokaHall}</td><td><span class="px-2 py-0.5 rounded-full text-xs ${m.isVerified ? 'bg-green-100' : 'bg-amber-100'}">${m.isVerified ? 'Verified' : 'Pending'}</span></td><td><button onclick="viewMemberDetail(${m.id})" class="text-blue-600 underline">View</button></td></tr>`).join('');
+            });
+        }
+        
+        // ================== ANALYTICS ==================
+        function renderAnalytics(container) {
+            const filtered = getFilteredMembers();
+            const ageGroups = { "13-15":0, "16-18":0, "19-21":0, "22-25":0 };
+            filtered.forEach(m => { if(m.age<=15) ageGroups["13-15"]++; else if(m.age<=18) ageGroups["16-18"]++; else if(m.age<=21) ageGroups["19-21"]++; else ageGroups["22-25"]++; });
+            const workStatusCount = { Working: filtered.filter(m=>m.workStatus && m.workStatus!=='None').length, Unemployed: filtered.filter(m=>!m.workStatus || m.workStatus==='None').length };
+            container.innerHTML = `
+                <h1 class="text-2xl font-bold mb-4">📊 YoKA Analytics</h1>
+                <div class="grid md:grid-cols-2 gap-6"><div class="bg-white p-4 rounded-xl shadow"><canvas id="ageChart"></canvas></div><div class="bg-white p-4 rounded-xl shadow"><canvas id="workChart"></canvas></div></div>
+                <div class="mt-6 bg-white p-4 rounded-xl shadow"><h3 class="font-semibold">Growth Trend (Sample)</h3><canvas id="trendChart" height="120"></canvas></div>
+            `;
+            setTimeout(() => {
+                const ctxAge = document.getElementById('ageChart')?.getContext('2d');
+                if(ctxAge) new Chart(ctxAge, { type: 'pie', data: { labels: Object.keys(ageGroups), datasets: [{ data: Object.values(ageGroups), backgroundColor: ['#3b82f6','#10b981','#f59e0b','#ef4444'] }] } });
+                const ctxWork = document.getElementById('workChart')?.getContext('2d');
+                if(ctxWork) new Chart(ctxWork, { type: 'doughnut', data: { labels: ['Employed/Working', 'Not Working'], datasets: [{ data: [workStatusCount.Working, workStatusCount.Unemployed], backgroundColor: ['#8b5cf6','#cbd5e1'] }] } });
+                const ctxTrend = document.getElementById('trendChart')?.getContext('2d');
+                if(ctxTrend) new Chart(ctxTrend, { type: 'line', data: { labels: ['Jan','Feb','Mar','Apr'], datasets: [{ label: 'Registrations', data: [5,8,12,7], borderColor: '#2563eb' }] } });
+            }, 100);
+        }
+        
+        // ================== EXPORT DATA (mock) ==================
+        function renderExportData(container) {
+            container.innerHTML = `<div class="bg-white p-6 rounded-xl shadow max-w-2xl"><h1 class="text-2xl font-bold">📥 Export Data</h1><p class="mb-4">Export members to Excel/CSV (demo)</p><button id="exportCsvBtn" class="bg-green-700 text-white px-5 py-2 rounded-lg"><i class="fas fa-file-csv"></i> Export CSV</button><div class="mt-4 text-sm text-gray-500">*In production, this would generate full member export.</div></div>`;
+            document.getElementById('exportCsvBtn')?.addEventListener('click', () => {
+                const filtered = getFilteredMembers();
+                let csv = "Name,Age,Phone,Branch,School\n" + filtered.map(m => `${m.officialName},${m.age},${m.activePhone},${m.churchBranch},${m.schoolName}`).join("\n");
+                const blob = new Blob([csv], {type: "text/csv"});
+                const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = "yoka_members.csv"; link.click();
+            });
+        }
+        
+        // ================== IMPORT DATA (admin/superadmin) ==================
+        function renderImportData(container) {
+            container.innerHTML = `<div class="bg-white p-6 rounded-xl shadow"><h1 class="text-xl font-bold">📤 Import Members (CSV/Excel demo)</h1><p class="text-gray-500 mb-3">Simulated import to branch: ${currentUser.branchName}</p><input type="file" id="importFile" class="border p-2 rounded"><button id="doImport" class="mt-3 bg-blue-600 text-white px-4 py-2 rounded">Import</button><div id="importResult" class="mt-3"></div></div>`;
+            document.getElementById('doImport')?.addEventListener('click', () => {
+                document.getElementById('importResult').innerHTML = '<span class="text-green-600">✅ Demo: 2 members imported successfully (simulated).</span>';
+            });
+        }
+        
+        // ================ BRANCH MANAGEMENT ================
+        function renderBranchManagement(container) {
+            container.innerHTML = `<div class="bg-white p-5 rounded-xl"><h1 class="font-bold text-xl">🏢 Branch Management</h1><ul class="mt-4 space-y-2">${branches.map(b => `<li class="border p-3 rounded flex justify-between items-center"><span><strong>${b.branchName}</strong> (${b.branchCode})<br><span class="text-xs">${b.location}</span></span><button class="text-red-500 text-sm">Deactivate</button></li>`).join('')}</ul><button class="mt-4 bg-blue-600 text-white px-4 py-2 rounded">+ Add Branch</button><p class="text-xs text-gray-400 mt-4">*Full CRUD would integrate with backend</p></div>`;
+        }
+        
+        function renderUserManagement(container) { container.innerHTML = `<div class="bg-white p-5 rounded-xl"><h1>👥 User Management (Super Admin)</h1><p>List users, reset passwords, roles (demo simulation)</p><div class="mt-3 p-3 bg-gray-100 rounded">User: exec_central (Branch Executive), admin (Admin)</div></div>`; }
+        function renderEmailSettings(container) { container.innerHTML = `<div class="bg-white p-5 rounded-xl"><h1>📧 Email Configuration</h1><p>SMTP settings mockup (Gmail, Office365)</p><input placeholder="SMTP Server" class="border p-2 w-full my-2"><button class="bg-blue-700 text-white px-4 py-2 rounded">Save Settings</button></div>`; }
+        function renderThemeCustomizer(container) { container.innerHTML = `<div class="bg-white p-5 rounded-xl"><h1>🎨 Theme Customizer</h1><label>Primary Color</label><input type="color" value="#1e3a8a" class="block my-2"><button class="bg-indigo-700 text-white p-2 rounded">Apply Theme</button></div>`; }
+        function renderAuditLog(container) { container.innerHTML = `<div class="bg-white p-5 rounded-xl"><h1>📜 Audit Log</h1><table class="w-full text-sm"><tr><th>Timestamp</th><th>User</th><th>Action</th></tr><tr><td>2025-03-20 10:23</td><td>super_admin</td><td>Created Branch</td></tr><tr><td>2025-03-19</td><td>exec_central</td><td>Registered Member</td></tr></table></div>`; }
+        
+        // sidebar + navigation
+        function buildSidebar() {
+            const navContainer = document.getElementById('sidebarNav');
+            const role = currentUser.role;
+            let menu = [
+                { id: 'dashboard', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
+                { id: 'registration', icon: 'fas fa-pen-alt', label: 'Registration Form' },
+                { id: 'viewMembers', icon: 'fas fa-users', label: 'View Members' },
+                { id: 'analytics', icon: 'fas fa-chart-pie', label: 'Analytics Dashboard' },
+                { id: 'exportData', icon: 'fas fa-download', label: 'Export Data' }
+            ];
+            if (role === 'super_admin' || role === 'admin') {
+                menu.push({ id: 'importData', icon: 'fas fa-upload', label: 'Import Data' });
+                menu.push({ id: 'branchManagement', icon: 'fas fa-building', label: 'Branch Management' });
+            }
+            if (role === 'super_admin') {
+                menu.push({ id: 'userManagement', icon: 'fas fa-user-cog', label: 'User Management' });
+                menu.push({ id: 'emailSettings', icon: 'fas fa-envelope', label: 'Email Settings' });
+                menu.push({ id: 'themeCustomizer', icon: 'fas fa-palette', label: 'Theme Customizer' });
+                menu.push({ id: 'auditLog', icon: 'fas fa-history', label: 'Audit Log' });
+            }
+            navContainer.innerHTML = menu.map(item => `<button data-page="${item.id}" class="sidebar-btn w-full text-left flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-blue-50 transition"> <i class="${item.icon} w-5"></i><span>${item.label}</span></button>`).join('');
+            document.querySelectorAll('.sidebar-btn').forEach(btn => {
+                btn.addEventListener('click', () => renderPage(btn.dataset.page));
+            });
+            // default highlight on dashboard
+        }
+        
+        function initUI() {
+            document.getElementById('userName').innerText = currentUser.fullName;
+            document.getElementById('userRoleDisplay').innerText = currentUser.role.replace('_', ' ').toUpperCase();
+            document.getElementById('userBranch').innerText = currentUser.branchName + ' Branch';
+            buildSidebar();
+            renderPage('dashboard');
+            document.getElementById('logoutBtn')?.addEventListener('click', () => {
+                if(confirm('Logout?')) location.reload(); // reset demo
+            });
+        }
+        
+        initUI();
+    </script>
+</body>
+</html>
